@@ -2,7 +2,9 @@
 
 Referencia técnica del pipeline de datos y de los notebooks. Estado del proyecto y
 próximos pasos: [`.claude/memoria.md`](../.claude/memoria.md). Diccionario de variables:
-[`.claude/memoria_EPH.md`](../.claude/memoria_EPH.md).
+[`.claude/memoria_EPH.md`](../.claude/memoria_EPH.md). Rutina del nowcast (cuándo correrlo, qué
+mantener, qué revisar): [`NOWCAST.md`](NOWCAST.md). Rutina del 08 (adultos mayores: correrlo,
+validarlo, mantenerlo y leer sus resultados): [`JUBILADOS.md`](JUBILADOS.md).
 
 ## 1. Flujo de datos
 
@@ -14,20 +16,29 @@ EPH_usu_<Q>_Trim_<YYYY>_txt.zip  ──►   carga_EPH/*.zip
                                               ▼
                                        carga_EPH/processed/eph_T<Q><YY>.parquet
                                               │  (1 parquet por trimestre)
-                   01-05: copia a /content/processed_local (shutil.copy)
+                   01-08: copia a /content/processed_local (shutil.copy)
                                               ▼
                               load_panel(columns=[...], quarters=[...])
+                                              │
+              06_termometro ──► carga_EPH/resultados/termometro_EPH.csv (+ anual, resumen, graficos/)
+                                              │  (A, B y C del termómetro)
+              07_nowcast  ──► carga_EPH/resultados/nowcast/ (registro_versiones.csv, nowcast, backtest,
+                              robustez, graficos/)  + series de datos.gob.ar
+              08_jubilados ──► carga_EPH/resultados/jubilados/ (Excel, tablas/, graficos/, resumen, ZIP)
+                              + IPC, haber mínimo, canastas y pobreza oficial de datos.gob.ar
 ```
 
 - Rutas en Colab: `DRIVE_DIR = /content/drive/MyDrive/carga_EPH`,
   `DRIVE_PROCESSED = /content/drive/MyDrive/carga_EPH/processed`,
-  `PROCESSED_DIR` (01-05) = `/content/processed_local`.
+  `PROCESSED_DIR` (01-08) = `/content/processed_local`; `RESULTADOS_DIR` (06-08) =
+  `/content/drive/MyDrive/carga_EPH/resultados`.
 - Cada notebook clona (o hace `git pull` de) este repo en `/content/analisis_EPH` para
   importar `src/data_loader.py`. **Los cambios de código solo llegan a Colab después
   de pushearlos a `main`.**
 - Alternativa local: poner `.zip`/`.txt` en `data/raw/` y usar `out_dir` por defecto
   (`data/processed/`). `tools/probar_06_local.py --descargar` baja los zips del sitio del
-  INDEC, compila y corre el notebook 06 completo (ver §6, "Probar en la PC").
+  INDEC, compila y corre el notebook 06 completo (ver §6, "Probar en la PC");
+  `tools/probar_07_local.py` corre el 07 (§7) y `tools/probar_08_local.py` el 08 (§8).
 
 ## 2. `src/data_loader.py`
 
@@ -56,7 +67,8 @@ Colab y superarían los 100 MB de GitHub.
 | T1-2026 | 234 | 98 | 331 |
 
 T1-2026: 43.739 personas, 15.447 hogares, 0 personas sin hogar en el merge. La columna
-faltante respecto de T4-2025 no fue identificada todavía (pendiente, no afecta notebooks).
+faltante respecto de T4-2025 es **`CAT_INAC`** (categoría de inactividad; identificada el
+2026-10-22). Ningún notebook la usa: el 08 identifica a los jubilados por el monto cobrado.
 
 Variables del esquema nuevo (primer dato en 2023T4): `EMPLEO`, `SECTOR`, `P_DECCF`,
 `V2_01_M`, `V5_01_M` y demás desagregadas (ver `memoria_EPH.md` §2).
@@ -66,7 +78,7 @@ Variables del esquema nuevo (primer dato en 2023T4): `EMPLEO`, `SECTOR`, `P_DECC
 1. **RAM de Colab**: nunca concatenar todos los trimestres con todas las columnas;
    usar `load_panel(columns=...)`.
 2. **FUSE de Drive** (`OSError [Errno 107] Transport endpoint is not connected`) al leer
-   muchos parquets desde el mount → copiar primero a disco local (setup de 01-05).
+   muchos parquets desde el mount → copiar primero a disco local (setup de 01-08).
 3. **Coma decimal** del INDEC → `decimal=","` en `_read_csv`.
 4. **Dtypes al concatenar**: si una columna viene como texto en algún trimestre, toda la
    columna queda `object` → `pd.to_numeric(col, errors="coerce")` antes de operar
@@ -76,8 +88,8 @@ Variables del esquema nuevo (primer dato en 2023T4): `EMPLEO`, `SECTOR`, `P_DECC
 6. **Tipos mezclados** (`CH05`) → `_fix_mixed_type_columns` antes del parquet.
 7. **`overwrite`** del 00 debe quedar en `False`; usar `True` solo si cambia la lógica de
    compilación (ej. un fix en `_read_csv`) y hay que regenerar todo (~36+ trimestres).
-8. **Orden de ejecución**: subir zip ⇒ correr 00 ⇒ recién después 01-05 (ver
-   `list_available_quarters` arriba).
+8. **Orden de ejecución**: subir zip ⇒ correr 00 ⇒ recién después 01-08 (ver
+   `list_available_quarters` arriba; el 07 además necesita el 06).
 
 ## 5. Convenciones de análisis
 
@@ -91,7 +103,11 @@ Variables del esquema nuevo (primer dato en 2023T4): `EMPLEO`, `SECTOR`, `P_DECC
 - No respuesta de ingresos: `P21 = -9` tiene `PONDIIO = 0`; las personas de hogares sin
   respuesta (~25%) tienen `PONDIH = 0`. Los ponderadores de ingreso suman el total de la
   población (ya corrigen la no respuesta): no hace falta imputar.
-- Deciles en 03: cuantiles ponderados (`weighted_quantile`); ver pendiente de empates.
+- Deciles en 03: cuantiles ponderados (`weighted_quantile`); ver pendiente de empates. El 08 usa los
+  deciles de personas del INDEC (`P_DECCF`, desde 2023T4).
+- Ingresos reales (06, 07 y 08): IPC de los **meses de referencia** de los ingresos (el mes anterior a
+  cada mes de entrevista). **Pobreza (08): canasta de los meses calendario** del trimestre, que es la
+  convención con la que se replica la tasa oficial del INDEC (§8).
 
 ## 6. Notebook 06 — termómetro (v4)
 
@@ -169,16 +185,19 @@ INDEC los zips que falten a `data/raw/`, compila los parquets que falten a `data
 ~30 s una vez compilado (la compilación inicial ~1,5 min). Los números coinciden con Colab
 (verificado: réplica exacta de v3, y el CSV de v4 idéntico al de Colab, bootstrap incluido). En Windows usar `PYTHONUTF8=1` (la salida usa ✓/⚠/↑/↓).
 
-## 7. Notebook 07 — nowcast de la dimensión D (prototipo, 2026-10-20)
+## 7. Notebook 07 — nowcast del termómetro (D 2026-10-20; A, B y C 2026-10-21)
 
 **Se genera:** `python tools/gen_07_nowcast.py`. La lógica vive en `src/nowcast.py`; el notebook
 solo la llama y muestra. Probar: `python tools/probar_07_local.py` (correr antes el 06 si cambió:
-el 07 compara sus indicadores oficiales contra `termometro_EPH.csv`). Salidas en
-`carga_EPH/resultados/nowcast/` (local: `data/processed/resultados_06/nowcast/`). ~40-50 s local.
+el 07 toma de `termometro_EPH.csv` los indicadores de A, B y C y compara contra él D, las
+dimensiones y el termómetro). Salidas en `carga_EPH/resultados/nowcast/` (local:
+`data/processed/resultados_06/nowcast/`). ~5 min local (los backtests del termómetro son lo que tarda:
+el principal y los tres sin cada predictor de la sección 7).
 
-**Objetivo:** tener D (ingresos reales) antes de que salga la EPH (~85 días después del
-trimestre), corregirla cuando sale y registrar cada versión. A, B y C se sumarán con el mismo
-esquema (proyectar cada indicador en sus unidades y pasarlo por la normalización del 06).
+**Objetivo:** tener el termómetro antes de que salga la EPH (~85 días después del trimestre),
+corregirlo cuando sale y registrar cada versión. Cada indicador se proyecta en sus unidades (D por
+microsimulación, A, B y C por ecuaciones puente) y pasa por la normalización del 06 (`termometro`).
+Lo que sigue hasta "Resultados del backtest" es la parte de D; A, B y C al final de la sección.
 
 Piezas de `src/nowcast.py`:
 - **Series (`SERIES`)**: id de datos.gob.ar, desfase en meses y rezago de publicación en días (este
@@ -217,12 +236,10 @@ Piezas de `src/nowcast.py`:
   RMSE sin 2020T2-2021T1. Limitación: usa las series actuales, no las versiones de cada momento.
 - **Deriva (`estimar_deriva`, `aplicar_deriva`)**: corrige el sesgo con los últimos errores a k=1 ya
   conocidos. Probado con ventanas 4, 8, 12 y todos: baja el sesgo de D pero no el error cuadrático
-  y empeora el ingreso laboral → `CORREGIR_DERIVA = False` en el notebook.
-- **Bandas**: `error_esperado(res, k, días)` → ±1,96 × RMSE del horizonte más parecido del backtest.
-- **Registro (`filas_registro`, `registrar`, `conciliar`)**: `nowcast/registro_versiones.csv`,
-  formato CSV estándar. Clave (`fecha_corrida`, `version`, `trimestre`, `indicador`): una corrida
-  del mismo día reemplaza a la anterior. `conciliar` completa `oficial` (para D, `D_tiempo_real`) y
-  `error` = proyectado − oficial cuando el trimestre ya tiene EPH.
+  y empeora el ingreso laboral → no se usa; el 07 la muestra solo como alternativa (sección 5).
+- **Funciones solo de D** (`backtest`, `resumir`, `error_esperado`): quedan para comparar los métodos
+  de D (sección 5 del 07, "Alternativas"); el nowcast usa las del termómetro completo (abajo).
+- **Registro (`registrar`, `conciliar`)**: ver "A, B y C" abajo (`filas_registro` es general).
 
 **Resultados del backtest (2026-10-20, 25 trimestres sin pandemia):**
 
@@ -237,12 +254,182 @@ EPH crecen ~0,3-0,5% por trimestre más que los índices). Mayor error: 2025T1 (
 ingreso laboral real de la EPH subió 10% contra el trimestre anterior). Un error de 3% en el
 ingreso laboral puede mover D ~10 pts si cae en una zona densa de la historia.
 
-## 8. Entorno
+### A, B y C: ecuaciones puente (2026-10-21)
+
+- **Oficiales:** `leer_oficiales(csv06, oficiales_D)` toma del CSV del 06 los 13 indicadores de A, B
+  y C (`pct_`) y les suma los 2 de D recalculados. `DIMENSIONES` y `termometro` son copias del 06
+  (solo los ingresos se desestacionalizan): control del 07 = dimensiones y termómetro idénticos al
+  CSV (dif. < 1e-6). `termometro_tiempo_real` = cada trimestre tal como lo mostró el 06 cuando era
+  el último (contra eso se mide el error).
+- **Predictores (`SERIES`):** EMAE desestacionalizado `143.3_NO_PR_2004_A_31` (rezago ~55 días),
+  SIPA asalariados sin estacionalidad privados `151.1_AARIADOTAC_2012_M_26`, públicos `_25` y casas
+  particulares `_40` (~100 días; se suman en `sipa_asal`), confianza del consumidor UTDT bienes
+  durables e inmuebles `380.3_DESAGREGACLES_0_T_50` (sale en el mes). También se bajan, sin usar, la
+  EIL `50.3_ICS_0_M_12` y el ICC general `380.3_ICC_NACIONNAL_0_T_12`. Trimestres calendario
+  (`meses_cal`), log × 100 salvo la confianza (nivel). Meses sin dato: tendencia de los últimos 3
+  (la confianza, constante; dejar constantes también EMAE y SIPA empeoró el backtest: termómetro a
+  k=3 8,8 → 11,2).
+- **API:** algunas series vienen vacías de la API todo un día; `_bajar_serie` baja entonces el CSV de
+  la distribución (URL y columna salen de `metadata=full`, que sí responde).
+- **`puente`:** sobre el indicador desestacionalizado (factores del 06 hasta la base),
+  Δy_t = Σ β_j·Δx_{j,t}, sin constante, MCO con los trimestres hasta la base sin 2020T1-2021T2;
+  proyección = último valor + Σ β·Δx + estacionalidad. Sin predictores = persistencia. El término
+  autorregresivo (`ar=True`: los cambios de la EPH revierten, autocorrelación hasta −0,48) empeora
+  el backtest: desactivado.
+- **`PREDICTORES`:** los mismos tres (EMAE, `sipa_asal`, `icc_dur`) para los 13 indicadores. Elegir
+  por indicador los de mayor correlación da parecido (termómetro 4,2 vs 4,3 a k=1) pero es
+  optimista (usa el período evaluado).
+- **`proyectar_termometro`:** D (`proyectar_indicadores`) + A, B y C (`proyectar_abc`) con las series
+  preparadas una vez; los 15 se agregan a la historia y pasan por `termometro`. Backtest:
+  `backtest_termometro` (formato largo, una fila por objetivo, horizonte y serie) y
+  `resumir_termometro`; bandas: `error_esperado_serie` (RMSE de cada serie en el horizonte más
+  parecido). Registro (`nowcast/registro_versiones.csv`, CSV estándar): `filas_registro` (una fila
+  por serie: termómetro, dimensiones y 15 indicadores, con IC ±1,96 × RMSE acotados a 0-100 / ≥ 0),
+  `registrar` (clave `fecha_corrida`, `version`, `trimestre`, `indicador`: una corrida del mismo día
+  y versión reemplaza a la anterior) y `conciliar(reg, oficiales, termometro_tiempo_real(...))`
+  (completa `oficial` y `error` = proyectado − oficial cuando el trimestre ya tiene EPH; acepta las
+  filas viejas de la versión `D-microsim v1`).
+
+**Estructura del notebook 07** (9 secciones + anexo; versión `VERSION = "termómetro v1"`):
+
+| # | Sección | Contenido |
+|---|---|---|
+| 1 | Setup | clona/actualiza repo, monta Drive, copia parquets, `RESULTADOS_DIR`; imports (`importlib.reload(nc)`), paleta del 06, `NOWCAST_DIR`, `guardar_figura`, `FECHA_CORRIDA` (hoy), `VERSION`, `SERIES_T` |
+| 2 | Series | `cargar_series` (API → CSV de la distribución → respaldo del repo) y tabla con origen y último mes de cada una |
+| 3 | Oficiales | `cargar_bases` (microdatos + D), `leer_oficiales` (A, B y C del CSV del 06), `T_rt`, `T_hoy`; control contra el 06 (✓ si dif. < 1e-6) y aviso si hay microdatos que el 06 no procesó |
+| 4 | Qué mueve la proyección | `variaciones` (índices de D) y `variaciones_abc` (predictores) entre la última EPH y el trimestre más lejano |
+| 5 | Backtest | `backtest_termometro` + `resumir_termometro` (grilla completa), lectura, tabla por indicador, alternativas (A, B y C con persistencia; D "anual" y con corrección de sesgo), gráficos `nowcast_01_error_por_horizonte` y `nowcast_02_backtest` |
+| 6 | Nowcast hoy | `proyectar_termometro` para cada trimestre sin EPH (por separado), bandas `error_esperado_serie`, tabla con IC, lectura interanual, tabla de indicadores, gráficos `nowcast_05_evolucion` (serie del 06 con su IC y media móvil 4T + proyección) y `nowcast_03_hoy` (termómetro y dimensiones) |
+| 7 | Robustez | `robustez_subperiodos`, `robustez_calibracion`, `convergencia`, `dependencia_predictores`, `alertas_robustez` |
+| 8 | Registro | `registrar` + `conciliar`, errores de las versiones con EPH, gráfico `nowcast_04_versiones` |
+| 9 | Exportar | `nowcast_termometro.csv`, `backtest_termometro.csv`, `backtest_termometro_resumen.csv` (`;` y `,`), `robustez_termometro.md`; lista los PNG |
+| Anexo | Decisiones y pruebas | evidencia de cada decisión de D y de A, B y C |
+
+**Resultados del backtest del termómetro (2026-10-21, 25 trimestres sin pandemia, RMSE en pts):**
+
+| Horizonte | Termómetro | Repetir el último | A, B y C con persistencia |
+|---|---|---|---|
+| k=1, 80 días después del cierre | 4,1 | 7,2 | 5,5 |
+| k=2, al cierre | 7,0 | 12,1 | 9,6 |
+| k=3, 75 días antes del cierre | 8,8 | 15,2 | 13,9 |
+
+Por dimensión (k=1, 80 días; puente vs persistencia): A 11,4 vs 12,0; B 14,2 vs 14,1; C 7,4 vs 8,7;
+a k=2 al cierre A 11,9 vs 15,4, B 18,2 vs 19,1, C 14,8 vs 13,8. **Ojo:** a k=1 la mayor parte de la
+mejora del termómetro viene de que los errores de B quedan correlacionados negativamente con los
+de A y C (−0,30 y −0,40; con persistencia, −0,04 y −0,08) y se compensan en el promedio (varianza
+del promedio de las dimensiones 30,2 → 17,9, con la suma de las varianzas casi igual): puede no
+repetirse, así que el 4,1 es optimista (lo esperable está entre 4,1 y 5,5). A k ≥ 2 la mejora de A
+es sólida. Por indicador, el puente le gana a la persistencia en 5 de 13 (despidos +9%,
+subocupación +7%, vendieron pertenencias +8%, tasa de empleo y desocupación +2%) y pierde en el
+resto (hasta −19% en asalariados registrados): la ganancia está en el agregado.
+
+Nowcast al 21/10/2026 (base 2026T1, termómetro 52,8): 2026T2 = 62,8 (IC 54,5-71,1), 2026T3 = 58,6
+(44,8-72,4), 2026T4 = 54,1 (36,8-71,4). La suba contra T1 es sobre todo estacional (el T2 es peor
+que el T1 en B y C; solo con persistencia daría 60,3); contra el mismo trimestre de 2025: +12,0,
++12,5 y +4,6. EMAE cae en jul-2026 (−2,9% mensual) y la tendencia lo arrastra a los meses sin dato.
+
+**Robustez (2026-10-21, sobre el backtest local; sin pandemia).** Se recalcula en cada corrida en la
+sección 7 del 07 (`robustez_subperiodos`, `robustez_calibracion`, `convergencia`,
+`dependencia_predictores` y la lectura ✓/⚠ de `alertas_robustez`, que se exporta a
+`nowcast/robustez_termometro.md`; horizontes en `HORIZONTES_ROBUSTEZ`, versiones en `CALENDARIO`).
+Umbrales de las alertas: sesgo significativo si |sesgo| > 1,96 × su error estándar; intervalos
+angostos si cubren < 85%; el error de las versiones no puede subir más de 0,3 pts; un predictor es
+crítico si sacarlo sube el error > 20% en algún horizonte. Resultados al 2026-10-21:
+- **Sesgo:** ninguno significativo en el termómetro (+0,2 pts a k=1, EE 0,8; +1,3 a k=3, EE 1,8).
+- **Estabilidad:** mejora en los dos subperíodos, pero mucho más en 2023-2026 (k=1: 2,5 vs 7,6 de
+  repetir el último) que en 2019-2022 (5,4 vs 6,8). Le gana a repetir el último en 60-64% de los
+  trimestres. B en 2019-2022 y C a k ≥ 2 en 2019-2022 son peores que repetir el último.
+- **Intervalos de 95%:** cubren el dato oficial en 92% (k=1), 96% (k=2) y 84% (k=3) de los trimestres;
+  con el RMSE que se conocía en cada fecha cubren 100% (conservadores en 2023-2026).
+- **Versiones:** el error baja ordenado a medida que llegan datos (calendario normal: −75 días 7,1;
+  −30 6,7; al cierre, ya con la base nueva, 4,4; +45 4,2; +80 4,1). La corrección grande llega con la
+  EPH nueva (revisión media 4,7 pts); después las revisiones son chicas (1-1,5) y solo ~60% acercan al
+  oficial (el resto es ruido).
+- **Dependencia de una serie:** sin SIPA el error sube a 5,3 / 9,4 / 13,1 (k=1/2/3; con SIPA 4,1 /
+  7,0 / 8,8); sin confianza del consumidor 4,6 / 6,9 / 9,8; sin EMAE 3,9 / 7,6 / 8,5 (el EMAE casi no
+  aporta). El SIPA es el predictor clave y sale con ~100 días.
+- **Nowcast de hoy ante decisiones razonables** (predictores elegidos por indicador, término AR, sacar
+  un predictor, meses sin dato constantes, no registrado corrido 5 meses, D con corrección de sesgo):
+  2026T2 60,8-64,3 (elegido 62,8), T3 55,3-61,4 (58,6), T4 51,2-57,8 (54,1). En todas las variantes los
+  tres quedan por encima del mismo trimestre de 2025 (50,8 / 46,1 / 49,4). Cada trimestre se proyecta
+  por separado: si se agregan a la historia los siguientes trimestres proyectados, su percentil cambia
+  ~1 punto (2026T2: 63,7 en vez de 62,8).
+
+## 8. Notebook 08 — adultos mayores y jubilados (2026-10-22)
+
+**Se genera, no se edita a mano:** `python tools/gen_08_jubilados.py` reescribe
+`notebooks/08_jubilados.ipynb`; la lógica vive en `src/jubilados.py` (definiciones, preparación de
+los microdatos, estimación con bootstrap, gráficos y exportación). Prueba local con datos reales:
+`python tools/probar_08_local.py` (~3 min; `--respaldos` regenera las copias de canastas y pobreza
+oficial). Salidas en `carga_EPH/resultados/jubilados/` (local: `data/processed/resultados_06/jubilados/`).
+Validación contra Colab: `python -X utf8 tools/comparar_zip_08.py <ruta al ZIP de Colab>` (compara las
+38 tablas, el resumen y los gráficos; validado el 2026-10-22 con el commit e2a23a3, diferencia
+relativa máxima 5e-16). Rutina, valores de referencia, cuidados de lectura y mejoras pendientes:
+[`JUBILADOS.md`](JUBILADOS.md).
+
+**Definiciones** (pedido del usuario, 2026-10-22): adultos mayores (AM) = varones de 65+ y mujeres
+de 60+; pre-jubilables = varones de 60-64 y mujeres de 55-59. La **foto** junta los últimos 4
+trimestres (`FOTO`, se corre sola cuando entra un trimestre nuevo); la **evolución** recorre todos
+los trimestres de a uno (`COLS_SERIE`, `indicadores_trimestre`).
+
+| # | Sección | Contenido |
+|---|---|---|
+| 1-2 | Setup y datos | IPC y haber mínimo (API, respaldo `data/series_nowcast.csv`), bono (`data/bono_previsional.csv`), canastas (`data/canastas_regionales.csv`); `REF` = valores de referencia por trimestre; `d` = microdatos de la foto preparados; `bs` = bootstrap con las viviendas de toda la serie |
+| 3 | Cuántos son | millones de AM por sexo y tramo (promedio de 4 trimestres), % de la población, hogares con AM, pirámide 50+ |
+| 4 | Con quién viven | tipología `CONVIVENCIA`, rol en el hogar (`ROL`), `CON_HIJOS` (hijos en el hogar del AM / AM en el hogar de un hijo), hijos convivientes (edad, actividad), quién sostiene a quién (`SOSTEN`, `AM_SOSTEN`, `APORTE_AM`) |
+| 5 | Jubilación | cobertura (`COBRA`), tipo (`TIPO_JUB`, ≥2023T4), haber en mínimas (`BANDA_HABER`), haber mediano real |
+| 6 | Ingresos | IPCF mediano por grupo, deciles (`P_DECCF`), composición del ingreso (sin IC) |
+| 7 | Pobreza | pobreza e indigencia por grupo de edad; AM según convivencia, situación previsional, tipo, sexo y edad |
+| 8 | Trabajo | `JUB_TRABAJO`, ocupados por categoría, informalidad, horas e ingreso; trabajo según haber; pre-jubilables |
+| 9-11 | Vivienda, estrategias, salud | tenencia y servicios; `V6`, `V7`, `V13`-`V17`; cobertura de salud, educación (adultos desde 25 años), estado civil, tareas de la casa |
+| 12 | Regiones y aglomerados | 6 indicadores con IC (gráficos de puntos ordenados, línea = total) |
+| 13 | Evolución | 16 indicadores trimestrales con IC; haber mediano vs. haber mínimo real |
+| 14 | Lectura | `resumen` (Markdown) con las cifras principales |
+| 15 | Controles | muestra, no respuesta, **pobreza replicada vs. oficial** (total y regiones), salto de la cobertura en 2023T4, tipos vs. cobertura, canastas estimadas, masa en la mínima, estimaciones marcadas |
+| 16 | Exportar | `jubilados_EPH.xlsx` (hoja Índice + 38 tablas), `tablas/*.csv`, `graficos/*.png`, `jubilados_EPH_resumen.md`, `jubilados_EPH.zip` (se descarga en Colab) |
+
+**Piezas clave de `src/jubilados.py`:**
+- `preparar(df, ref)`: todas las variables del análisis. Las del hogar (tamaño, hijos, nietos, AM,
+  adultos equivalentes, ingreso de los AM) salen de agrupar por `HOG` = `CODUSU` + `NRO_HOGAR` +
+  trimestre. Las variables 0/1 valen `NaN` fuera de su universo, así que `estimar` toma solo los casos
+  con dato y el ponderador correcto.
+- `estimar(d, bs, valor, peso, por=..., tipo=...)` (`pct`, `media`, `mediana`, `total`) y
+  `distribucion(d, bs, var, peso, categorias, por=...)`: valor, IC 95%, casos, CV y `calidad`
+  (criterio del INDEC: CV > 20% o < 100 casos = "con cautela"; CV > 33% o < 50 casos = "no
+  confiable"). `juntar` une cortes; `ancho` arma la tabla para los gráficos apilados.
+- `Bootstrap`: Poisson(1) por vivienda, la misma vivienda con el mismo multiplicador en todos los
+  trimestres (como el 06). La foto junta 4 trimestres con viviendas repetidas (panel 2-2-2): el
+  bootstrap por vivienda lo tiene en cuenta.
+- `referencias`: por trimestre, IPC, haber mínimo y mínimo + bono (meses de referencia de los
+  ingresos) y CBA/CBT por región (meses calendario). Si falta la canasta regional de algún mes, se
+  usa la nacional × relación región/nacional de los últimos 6 meses y se avisa en los controles (las
+  regionales de datos.gob.ar se actualizan con atraso; la nacional, todos los meses).
+
+**Decisiones (con evidencia, 2026-10-22):**
+- *Jubilado* por monto (`V2_M` o la suma de `V2_01_M`-`V2_03_M`), no por `CAT_INAC`: este cambió de
+  códigos en 2023T4 (AM con `CAT_INAC==1`: 76% → 52%, el resto pasó a "ama de casa") y falta en
+  2026T1. Con el monto y `PONDII` la cobertura es 87,5-89% a ambos lados del cambio de esquema.
+- **Pobreza con los meses calendario del trimestre** (convención del INDEC): replica la tasa oficial
+  de personas con error medio 0,11 pp y máximo 0,22 pp (2017S1-2025S2; por región, 0,10-0,35 pp de
+  error medio). Con los meses de referencia
+  de los ingresos (mes anterior) el error medio era 2,1 pp (subestima).
+- **Haber en mínimas con los meses de referencia** (mes anterior a la entrevista): concentra más
+  casos en la mínima que los meses calendario (p. ej. 2026T1: 7,1% vs 3,2% a ±2% de la mínima).
+  Banda "la mínima (con o sin bono)" = 0,95 × mínima a 1,05 × (mínima + bono).
+- Hijos = `CH03==3` (hijos e hijastros del jefe/a): si el AM es cónyuge, pueden ser hijastros.
+
+## 9. Entorno
 
 - Colab: no requiere instalar nada extra (pandas, pyarrow, matplotlib, seaborn vienen).
 - Local: `pip install -r requirements.txt` (pandas, numpy, matplotlib, seaborn, pyarrow,
-  jupyter). Python ≥ 3.10 (se usan type hints `tuple[int, int] | None`).
-- Prueba completa del 06 con datos reales: `python tools/probar_06_local.py --descargar`.
+  jupyter, requests, openpyxl para el Excel del 08). Python ≥ 3.10 (se usan type hints
+  `tuple[int, int] | None`); probado con 3.14.
+- Prueba completa del 06 con datos reales: `python tools/probar_06_local.py --descargar` (~30 s una
+  vez compilado); del 07: `python tools/probar_07_local.py` (~5 min); del 08:
+  `python tools/probar_08_local.py` (~3 min).
+- Windows: `PYTHONUTF8=1` o `python -X utf8` (las salidas usan ✓/⚠/→). `python -I` ignora
+  `PYTHONUTF8`: usar `python -X utf8 -I`. No usar heredocs de bash con backticks para editar
+  archivos: escribir el script a un archivo y correrlo.
 - Chequeo rápido local de un zip nuevo (sin Colab):
 
 ```python

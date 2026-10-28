@@ -25,21 +25,33 @@ Como alternativa (o complemento), también se pueden colocar `.zip` o `.txt` sue
 
 ```
 analisis_EPH/
-├── notebooks/        # Notebooks de análisis (Colab)
+├── notebooks/                 # Notebooks de análisis (Colab): 00-08
 ├── data/
-│   ├── raw/          # Bases EPH descargadas manualmente (txt/xls del INDEC)
-│   └── processed/    # Datasets intermedios/limpios generados por los notebooks
-├── src/              # Funciones compartidas (carga de datos, armonización, utils)
-├── tools/            # Generadores de los notebooks 06 y 07 (gen_06/gen_07) y pruebas locales
-├── docs/             # Documentación técnica (TECNICO.md)
-└── .claude/          # Memoria/contexto del proyecto para sesiones de Claude Code
+│   ├── raw/                   # Zips del INDEC (ignorado por git; probar_06_local --descargar)
+│   ├── processed/             # Parquets y salidas locales (ignorado por git)
+│   ├── ipc_nacional.csv       # Respaldo del IPC nacional (06)
+│   ├── series_nowcast.csv     # Respaldo de las series de datos.gob.ar del nowcast (07; IPC y haber mínimo del 08)
+│   ├── bono_previsional.csv   # Bono previsional mensual, carga manual (07 y 08)
+│   ├── canastas_regionales.csv # Respaldo de la CBA y la CBT por región (08)
+│   └── pobreza_oficial.csv    # Respaldo de la pobreza publicada por el INDEC (08, validación)
+├── src/
+│   ├── data_loader.py         # Carga y compilación de las bases EPH
+│   ├── nowcast.py             # Lógica del nowcast del termómetro (07)
+│   └── jubilados.py           # Lógica del análisis de adultos mayores (08)
+├── tools/                     # Generadores de los notebooks 06, 07 y 08 (gen_06/gen_07/gen_08), pruebas
+│                              # locales (probar_06/07/08_local) y validación del 08 (comparar_zip_08)
+├── docs/
+│   ├── TECNICO.md             # Documentación técnica
+│   ├── NOWCAST.md             # Rutina del nowcast: cuándo correrlo, qué mantener, qué revisar
+│   └── JUBILADOS.md           # Rutina del 08: correrlo, validarlo, mantenerlo y leer sus resultados
+└── .claude/                   # Memoria/contexto del proyecto para sesiones de Claude Code
 ```
 
 ## Notebooks
 
 El notebook **00** es el punto de partida: **compila** las bases (une individuos+hogares
 de todos los trimestres) y genera los datasets procesados en `data/processed/`. El resto
-de los notebooks (01-07) **parten de esos datasets** ya compilados, en lugar de descargar
+de los notebooks (01-08) **parten de esos datasets** ya compilados, en lugar de descargar
 y unir las bases de nuevo.
 
 | Notebook | Tema | Colab |
@@ -51,9 +63,12 @@ y unir las bases de nuevo.
 | `04_vivienda.ipynb` | Tipo de vivienda, tenencia, servicios (agua/cloaca), hacinamiento, déficit | [![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/santiagoriverti/analisis_EPH/blob/main/notebooks/04_vivienda.ipynb) |
 | `05_educacion.ipynb` | Nivel educativo, asistencia escolar, público/privado, analfabetismo | [![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/santiagoriverti/analisis_EPH/blob/main/notebooks/05_educacion.ipynb) |
 | `06_termometro.ipynb` | **Termómetro de la economía de los hogares**: índice de malestar 0-100 (cantidad de empleo y despidos, calidad del empleo, estrategias de supervivencia de los hogares, ingresos reales) con intervalos de confianza: lectura automática del último trimestre, evolución, mapa de calor, promedios anuales, controles de calidad y exportación a Drive | [![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/santiagoriverti/analisis_EPH/blob/main/notebooks/06_termometro.ipynb) |
-| `07_nowcast.ipynb` | **Nowcast del termómetro (prototipo, solo dimensión D)**: proyecta los ingresos reales antes de que salga la EPH con una microsimulación sobre la última base (salarios por sector, haberes, AUH, IPC), backtest en pseudo tiempo real y registro de versiones que mide el error cuando llega la EPH oficial | [![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/santiagoriverti/analisis_EPH/blob/main/notebooks/07_nowcast.ipynb) |
+| `07_nowcast.ipynb` | **Nowcast del termómetro**: proyecta las cuatro dimensiones antes de que salga la EPH (D por microsimulación sobre la última base con salarios, haberes, AUH e IPC; A, B y C con ecuaciones puente sobre EMAE, empleo registrado SIPA y confianza del consumidor), backtest en pseudo tiempo real y registro de versiones que mide el error cuando llega la EPH oficial | [![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/santiagoriverti/analisis_EPH/blob/main/notebooks/07_nowcast.ipynb) |
+| `08_jubilados.ipynb` | **Adultos mayores y jubilados** (varones 65+, mujeres 60+): cuántos son, con quién viven (si viven con sus hijos o los hijos con ellos, quién sostiene a quién), cobertura previsional, tipo de beneficio y haber en mínimas, ingresos, pobreza e indigencia (metodología INDEC), trabajo, vivienda, estrategias del hogar, salud, educación y estado civil; por región y aglomerado con IC, evolución 2017-2026 y salidas en Excel/CSV/PNG/ZIP | [![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/santiagoriverti/analisis_EPH/blob/main/notebooks/08_jubilados.ipynb) |
 
-**Cobertura actual:** 37 trimestres, **T1-2017 → T1-2026** (todos los notebooks validados en Colab).
+**Cobertura actual:** 37 trimestres, **T1-2017 → T1-2026** (00-06 validados en Colab; el 07
+validado en Colab salvo su sección de robustez y el gráfico de evolución, agregados el 2026-10-21;
+el 08, creado el 2026-10-22, validado en Colab: idéntico a la corrida local con datos reales).
 
 ### Qué hace el notebook 00 (compilación)
 
@@ -68,7 +83,7 @@ y unir las bases de nuevo.
 4. Reporta el **quiebre de esquema de 4T2023** (ver diccionario): los trimestres viejos
    (≤T3-2023) no tienen las variables nuevas (`EMPLEO`, `SECTOR`, ingresos desagregados, etc.).
 
-Los notebooks 01-05 leen los datos con `load_panel(columns=..., quarters=...)`, pidiendo
+Los notebooks 01-08 leen los datos con `load_panel(columns=..., quarters=...)`, pidiendo
 solo las columnas y trimestres necesarios (evita cargar todo en memoria):
 
 ```python
@@ -85,7 +100,9 @@ df = load_panel(columns=["CH06", "CH04", "REGION", "PONDERA"])  # ej. demografí
 3. Volver a correr `notebooks/00_preparacion_bases.ipynb`: detecta automáticamente
    todos los trimestres presentes en `carga_EPH` y compila solo el nuevo; no hace falta
    editar nada en el código.
-4. Recién después re-correr los notebooks 01-06: toman el último trimestre solos.
+4. Recién después re-correr los notebooks 01-06 (toman el último trimestre solos), el 07, que
+   completa el error de las proyecciones de ese trimestre en el registro de versiones, y el 08 (su
+   foto pasa sola a los últimos 4 trimestres; ver [`docs/JUBILADOS.md`](docs/JUBILADOS.md) §4).
    (Si se corren antes del 00, fallan porque el parquet del trimestre nuevo no existe.)
 
 ## Termómetro de la economía de los hogares (notebook 06)
@@ -150,28 +167,103 @@ mano) y se puede probar en la PC con datos reales con `python tools/probar_06_lo
 --descargar`. Detalle metodológico en [`docs/TECNICO.md`](docs/TECNICO.md) §6 y diccionario
 de variables en [`.claude/memoria_EPH.md`](.claude/memoria_EPH.md) §9.
 
-## Nowcast del termómetro (notebook 07, prototipo)
+## Nowcast del termómetro (notebook 07)
 
-La EPH sale ~85 días después de cada trimestre. El 07 **proyecta la dimensión D (ingresos
-reales)** del termómetro antes de esa fecha: toma los microdatos de la última EPH y actualiza el
-ingreso de cada persona con índices mensuales que se publican antes (índice de salarios del
-INDEC por sector, haber mínimo y bono, AUH, IPC), recalcula los indicadores de D con las mismas
-fórmulas del 06 y los normaliza igual. Cuando sale la EPH, el trimestre pasa a oficial y cada
-versión guardada en el **registro de versiones** (`carga_EPH/resultados/nowcast/`) recibe su error.
+La EPH sale ~85 días después de cada trimestre. El 07 **proyecta el termómetro** antes de esa
+fecha, indicador por indicador, y los pasa por la misma normalización del 06:
 
-**Backtest (2019-2026, sin pandemia):** con la EPH del trimestre anterior, la proyección de D erra
-9,5 pts (RMSE) contra 14,8 de repetir el último dato publicado; el ingreso laboral real, 3,5%
-(contra 6,4%), y el % de personas con ingreso bajo, 1,8 pp (contra 3,3). Si la EPH se demora (dos o
-tres trimestres sin dato, como en oct-2026), el error sube a 12-20 pts, pero sigue debajo de
-repetir el último (22-26).
+- **D (ingresos reales):** microsimulación sobre los microdatos de la última EPH, actualizando el
+  ingreso de cada persona con índices mensuales que se publican antes (índice de salarios del
+  INDEC por sector, haber mínimo y bono, AUH, IPC).
+- **A, B y C (empleo, calidad del empleo, estrés de los hogares):** ecuaciones puente: cada
+  indicador cambia en proporción al cambio del EMAE, de los asalariados registrados del SIPA y de la
+  confianza del consumidor de la UTDT (bienes durables), que sale en el mismo mes.
 
-**Nowcast al 20/10/2026** (base 2026T1, D = 31,9; el T2-2026 todavía no estaba publicado):
-2026T2 D = 35 (IC 95% 17-53), 2026T3 = 32 (3-60), 2026T4 = 24 (0-63). Intervalos = ±1,96 × error
-del backtest para ese horizonte.
+Cuando sale la EPH, el trimestre pasa a oficial y cada versión guardada en el **registro de
+versiones** (`carga_EPH/resultados/nowcast/registro_versiones.csv`, en Drive) recibe su error.
+
+**Qué muestra el notebook:** series usadas y su último dato; control contra el 06; qué movió la
+proyección; backtest en pseudo tiempo real; el nowcast de cada trimestre sin EPH con su intervalo
+y la comparación interanual; robustez; registro de versiones. **Gráficos** (en
+`nowcast/graficos/`): evolución del termómetro con la proyección (`nowcast_05_evolucion`), el
+nowcast por dimensión (`nowcast_03_hoy`), error según la fecha de la proyección
+(`nowcast_01_error_por_horizonte`), backtest (`nowcast_02_backtest`) y versiones de cada trimestre
+(`nowcast_04_versiones`).
+
+**Backtest (2019-2026, sin pandemia, RMSE):** con la EPH del trimestre anterior, el termómetro
+proyectado erra 4,1 pts contra 7,2 de repetir el último publicado (el ruido muestral de la EPH es
+~3,6); si la EPH se demora uno o dos trimestres, 7-9 contra 12-15. Por dimensión, la ganancia
+está en D (9,5 vs 14,8) y en A; B y C casi no se pueden anticipar. Parte de la mejora del
+termómetro a un trimestre viene de errores de B que compensan los de A y C, así que lo esperable
+es algo peor (entre 4,1 y 5,5).
+
+La **sección 7** del notebook chequea en cada corrida la robustez de ese resultado: subperíodos
+(la ventaja se sostiene en 2019-2022 y 2023-2026, mucho más en el segundo), sesgo (no
+significativo), cobertura de los intervalos (84-96%), convergencia de las versiones (el error baja
+de 7,1 a 4,1 a medida que llegan datos) y dependencia de cada predictor (sin el SIPA el error sube
+~50%: es la serie clave). La lectura queda en `nowcast/robustez_termometro.md`.
+
+**Nowcast al 21/10/2026** (base 2026T1 = 52,8; el T2-2026 todavía no estaba publicado):
+2026T2 = 62,8 (IC 95% 54-71), 2026T3 = 58,6 (45-72), 2026T4 = 54,1 (37-71). La suba contra el T1
+es sobre todo estacional; contra el mismo trimestre de 2025: +12,0, +12,5 y +4,6 pts.
 
 Generado con `python tools/gen_07_nowcast.py`; prueba local `python tools/probar_07_local.py`
-(después del 06). Detalle en [`docs/TECNICO.md`](docs/TECNICO.md) §7. Próximo paso: sumar A, B y
-C con el mismo esquema.
+(después del 06; ~5 min). Rutina (cuándo correrlo, mantenimiento mensual del bono previsional, qué
+revisar, qué hacer cuando sale una EPH): [`docs/NOWCAST.md`](docs/NOWCAST.md). Detalle técnico:
+[`docs/TECNICO.md`](docs/TECNICO.md) §7.
+
+## Adultos mayores y jubilados (notebook 08)
+
+Cómo viven los **adultos mayores** (varones de 65 años o más y mujeres de 60 o más, las edades
+jubilatorias) y cómo se relaciona con cobrar o no una jubilación. La foto junta los **últimos 4
+trimestres** (más muestra y sin la estacionalidad del aguinaldo); la evolución va de 2017 a hoy.
+Todos los indicadores tienen **intervalo de confianza del 95%** (bootstrap por vivienda, como el 06)
+y se marcan las estimaciones poco precisas (criterio del INDEC para el coeficiente de variación).
+
+**Cómo se mide:** *cobra jubilación o pensión* = declara un monto (`V2_M`; desde 2023T4 separado en
+por aportes, moratoria y otras pensiones), con el ponderador de ingresos `PONDII`; `CAT_INAC` no
+sirve (cambió de códigos en 2023T4 y no viene en 2026T1). *Con quién viven* sale del parentesco de
+todos los integrantes del hogar: distingue si **los hijos viven en el hogar del adulto mayor** (es
+jefe/a o cónyuge) o **el adulto mayor vive en el hogar de un hijo/a**, y qué parte del ingreso del
+hogar aportan los adultos mayores. **Pobreza e indigencia** con la metodología del INDEC (adulto
+equivalente y canasta de la región): la réplica coincide con la tasa oficial con un error medio de
+0,1 pp (2017S1-2025S2). Ingresos en pesos constantes y en haberes mínimos.
+
+**Resultados (T2-2025 a T1-2026, 31 aglomerados urbanos):**
+
+- **4,44 millones** de adultos mayores (14,8% de la población; 66% mujeres); un tercio de los hogares
+  tiene al menos uno.
+- **Con quién viven:** 22% solos, 30% solo con su pareja, **40% con al menos un hijo/a**: en el 33%
+  los hijos viven en el hogar del adulto mayor y en el 7% el adulto mayor vive en el hogar de un hijo
+  (19% entre los de 85 y más). Los hijos que viven con ellos son en su mayoría adultos (69% tiene 30
+  años o más) y el 65% trabaja; aun así, en el 55% de esos hogares los adultos mayores aportan más de
+  la mitad del ingreso (28% cuando el adulto mayor vive en el hogar del hijo).
+- **Jubilación:** cobra el **88,8%** (mujeres de 60 a 64: 69,5%; de 75 en adelante: 96%). Por aportes
+  56,5%, moratoria 24,2%, otras pensiones 3,5% y más de un beneficio 4,5%. El 39% de los que cobran declara
+  la mínima (con o sin bono) y el 17% menos (probablemente por descuentos de moratoria y créditos, o
+  por cobrar la PUAM). El haber
+  mediano real de los últimos 4 trimestres está un 33% debajo del de 2017 y un 14% debajo del de 2023.
+- **Pobreza:** **11,6%** de los adultos mayores (indigencia 1,7%), contra 28% de los adultos y 43% de
+  los menores de 18; 21,5% entre los que no cobran jubilación y 32% entre los que viven con hijos y
+  nietos. Solo el 13% está en los tres deciles de ingreso más pobres. En 2024 la pobreza de los
+  adultos mayores llegó a 23% (7% en 2017).
+- **Trabajo:** el 20% trabaja (59% de los que no cobran) y el 55% de los ocupados es informal.
+- **Vivienda:** 87% son propietarios; hacinamiento 2% (13% en el resto).
+
+**Cuidados al leerlos:** la pobreza de los adultos mayores sale baja en parte por la metodología
+(menos adultos equivalentes y 87% de propietarios) y el 23% está apenas arriba de la línea (de 1 a
+1,5 líneas); la cobertura es un piso (subdeclaración); la EPH solo ve a los hijos que viven en el
+mismo hogar y no cubre zonas rurales ni geriátricos. Detalle y mejoras pendientes en
+[`docs/JUBILADOS.md`](docs/JUBILADOS.md) §7-9.
+
+**Salidas** (en Drive, `carga_EPH/resultados/jubilados/`): `jubilados_EPH.xlsx` (hoja Índice + 38
+tablas; las estimaciones con valor, IC, casos y calidad), `tablas/*.csv` (`;` y coma decimal), 20 gráficos en
+`graficos/`, `jubilados_EPH_resumen.md` (lectura automática) y `jubilados_EPH.zip` con todo, que en
+Colab se descarga al final. Generado con `python tools/gen_08_jubilados.py`; prueba local
+`python tools/probar_08_local.py` (~3 min); validación contra Colab
+`python -X utf8 tools/comparar_zip_08.py <ruta al ZIP>` (validado el 2026-10-22: idéntico). Rutina
+(qué revisar, qué hacer cuando sale una EPH, mantenimiento):
+[`docs/JUBILADOS.md`](docs/JUBILADOS.md). Detalle técnico: [`docs/TECNICO.md`](docs/TECNICO.md) §8.
 
 ## Continuar en otra PC
 
@@ -185,10 +277,14 @@ corren en Colab, así que en una PC nueva alcanza con:
 2. Configurar git con el usuario propio (`git config user.name "Santiago Riverti"`) y
    credenciales de GitHub (Git Credential Manager o `gh auth login`) para poder pushear.
 3. Para trabajar con Claude Code: abrir la carpeta del repo; `CLAUDE.md` indica leer
-   `.claude/memoria.md` (estado/pendientes), `docs/TECNICO.md` y `.claude/memoria_EPH.md`.
+   `.claude/memoria.md` (estado/pendientes, empezando por el HANDOFF), `docs/TECNICO.md`,
+   `docs/NOWCAST.md`, `docs/JUBILADOS.md` y `.claude/memoria_EPH.md`.
 4. Para ejecutar: abrir cualquier notebook con su badge de Colab (usa la cuenta de Google
    que tiene la carpeta `carga_EPH`). Los cambios de código deben estar pusheados a
-   `main` para que Colab los vea.
+   `main` para que Colab los vea. Todo el estado que no está en el repo vive en Drive: los zips
+   y parquets (`carga_EPH/`, `carga_EPH/processed/`) y las salidas (`carga_EPH/resultados/`,
+   `carga_EPH/resultados/nowcast/` y `carga_EPH/resultados/jubilados/`, incluido el registro de
+   versiones del nowcast, que no se puede regenerar; el resto se regenera corriendo los notebooks).
 
 ### Setup local (opcional)
 
@@ -199,12 +295,16 @@ pip install -r requirements.txt
 Para correr localmente, poner los `.zip` del INDEC en `data/raw/` (no se versionan).
 `python tools/probar_06_local.py --descargar` los baja del sitio del INDEC, compila los
 parquets en `data/processed/` (ignorado por git) y corre el notebook 06 completo;
-`python tools/probar_07_local.py` hace lo mismo con el 07 (nowcast).
+`python tools/probar_07_local.py` hace lo mismo con el 07 (nowcast) y
+`python tools/probar_08_local.py` con el 08 (adultos mayores).
 
 ## Documentación técnica
 
 Ver [`docs/TECNICO.md`](docs/TECNICO.md): flujo de datos, funciones de
-`src/data_loader.py`, esquemas por trimestre, gotchas resueltos y convenciones de análisis.
+`src/data_loader.py`, esquemas por trimestre, gotchas resueltos, convenciones de análisis y el
+detalle de los notebooks 06 (termómetro), 07 (nowcast, `src/nowcast.py`) y 08 (adultos mayores,
+`src/jubilados.py`). Las rutinas de uso y mantenimiento están en [`docs/NOWCAST.md`](docs/NOWCAST.md)
+(07) y [`docs/JUBILADOS.md`](docs/JUBILADOS.md) (08).
 
 ## Diccionario de datos
 
